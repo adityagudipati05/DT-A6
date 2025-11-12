@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, Share2, QrCode } from "lucide-react"
+import { Plus, Share2, QrCode, Barcode } from "lucide-react"
 import StudentHeader from "@/components/student/student-header"
 import StudentStats from "@/components/student/student-stats"
 import AttendanceView from "@/components/student/attendance-view"
@@ -90,6 +90,13 @@ export default function StudentDashboard() {
                       >
                         <Share2 className="w-4 h-4 mr-2" />
                         Participate in Approved Events
+                      </Button>
+                      <Button
+                        onClick={() => router.push("/student/manage-event")}
+                        className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                      >
+                        <Barcode className="w-4 h-4 mr-2" />
+                        Manage Hosted Events
                       </Button>
                     </div>
                     <div className="border-t border-gray-200 pt-3">

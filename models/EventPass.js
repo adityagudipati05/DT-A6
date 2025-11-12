@@ -46,6 +46,13 @@ const eventPassSchema = new mongoose.Schema(
         default: null,
       },
     },
+    // Scan count tracking (0 = no scans, 1 = entry only, 2 = entry + exit = attendance counted)
+    scanCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 2,
+    },
     // Legacy field for backward compatibility
     scannedAt: {
       type: Date,

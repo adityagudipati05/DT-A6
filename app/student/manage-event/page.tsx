@@ -1,0 +1,257 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ArrowLeft, Loader2 } from "lucide-react"
+import StudentHeader from "@/components/student/student-header"
+import HostEventScanner from "@/components/student/host-event-scanner"
+import { useAuth } from "@/components/auth-context"
+
+interface HostedEvent {
+  _id: string
+  title: string
+  description?: string
+  date: string
+  location: string
+  approvalStatus: string
+  facultyCoordinator?: string
+  participants?: Array<{
+    _id: string
+    name: string
+    admissionNo: string
+  }>
+  attendanceMarked?: Array<{
+    studentId: string
+    scanCount?: number
+    entryTime?: string
+    exitTime?: string
+    attendancePercentage?: number
+    markedAt?: string
+  }>
+}
+
+export default function ManageEventPage() {
+  const router = useRouter()
+  const { user, logout } = useAuth()
+  const [hostedEvents, setHostedEvents] = useState<HostedEvent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/")
+      return
+    }
+    fetchHostedEvents()
+    // Auto-refresh every 3 seconds to catch approval updates from faculty
+    const interval = setInterval(fetchHostedEvents, 3000)
+    return () => clearInterval(interval)
+  }, [user, router])
+
+  const fetchHostedEvents = async () => {
+    try {
+      setLoading(true)
+      const token = localStorage.getItem("token")
+      
+      if (!token) {
+        setError("Authentication required. Please log in again.")
+        router.push("/")
+        return
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/events/my-events`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Failed to fetch hosted events: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setHostedEvents(data.events || [])
+      setError("")
+    } catch (error) {
+      console.error("Error fetching hosted events:", error)
+      setError(error instanceof Error ? error.message : "Failed to load hosted events")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshEventData = async () => {
+    await fetchHostedEvents()
+  }
+
+  const handleLogout = () => {
+    logout()
+    router.push("/")
+  }
+
+  const approvedEvents = hostedEvents.filter((event) => event.approvalStatus === "Approved")
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <StudentHeader onLogout={handleLogout} />
+
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <Button onClick={() => router.back()} variant="ghost" className="text-gray-600 hover:text-gray-900">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+        </div>
+
+        <div className="max-w-4xl mx-auto">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900">Manage Hosted Events</h1>
+            <p className="text-gray-600 mt-2">Mark attendance for your approved events</p>
+          </div>
+
+          {error && (
+            <Card className="border-red-300 bg-red-50 mb-6">
+              <CardContent className="pt-6">
+                <p className="text-red-800">{error}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {loading ? (
+            <Card className="border-gray-200 bg-white shadow-sm">
+              <CardContent className="pt-6 flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                <span className="ml-2 text-gray-600">Loading your events...</span>
+              </CardContent>
+            </Card>
+          ) : approvedEvents.length === 0 ? (
+            <Card className="border-gray-200 bg-white shadow-sm">
+              <CardContent className="pt-6 text-center py-12">
+                <p className="text-gray-600">
+                  You don't have any approved events yet. Host an event and get it approved by a faculty member.
+                </p>
+                <Button
+                  onClick={() => router.push("/student/host-event")}
+                  className="mt-4 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Host an Event
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              {/* Event Selection */}
+              {!selectedEventId && (
+                <Card className="border-gray-200 bg-white shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-gray-900">Select Event</CardTitle>
+                    <CardDescription className="text-gray-600">
+                      Choose an event to mark attendance
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {approvedEvents.map((event) => (
+                        <Card
+                          key={event._id}
+                          className="border-gray-200 cursor-pointer hover:border-blue-400 hover:shadow-md transition"
+                          onClick={() => setSelectedEventId(event._id)}
+                        >
+                          <CardHeader>
+                            <CardTitle className="text-lg text-gray-900">{event.title}</CardTitle>
+                            <CardDescription className="text-sm text-gray-600">
+                              {new Date(event.date).toLocaleDateString()}
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Location:</span>
+                                <span className="text-gray-900 font-medium">{event.location}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Marked:</span>
+                                <span className="text-gray-900 font-medium">
+                                  {event.attendanceMarked?.length || 0} participants
+                                </span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Attendance Scanner */}
+              {selectedEventId && (
+                <>
+                  <Button
+                    onClick={() => setSelectedEventId(null)}
+                    variant="ghost"
+                    className="text-gray-600 hover:text-gray-900"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Events
+                  </Button>
+                  <HostEventScanner eventId={selectedEventId} onScanComplete={refreshEventData} />
+
+                  {/* Attendance Summary */}
+                  {hostedEvents.find((e) => e._id === selectedEventId)?.attendanceMarked &&
+                    hostedEvents.find((e) => e._id === selectedEventId)!.attendanceMarked!.length > 0 && (
+                      <Card className="border-gray-200 bg-white shadow-sm">
+                        <CardHeader>
+                          <CardTitle className="text-gray-900">Marked Attendance</CardTitle>
+                          <CardDescription className="text-gray-600">
+                            {hostedEvents.find((e) => e._id === selectedEventId)?.attendanceMarked?.length || 0}{" "}
+                            participants have been marked
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {hostedEvents
+                              .find((e) => e._id === selectedEventId)
+                              ?.attendanceMarked?.map((student, idx) => (
+                                <div
+                                  key={idx}
+                                  className={`flex items-center justify-between p-3 rounded border ${
+                                    student.attendancePercentage === 100
+                                      ? "bg-green-50 border-green-300"
+                                      : "bg-yellow-50 border-yellow-300"
+                                  }`}
+                                >
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-900">Student {student.studentId}</p>
+                                    <p className="text-xs text-gray-600">
+                                      Scans: {student.scanCount || 0}/2
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-bold text-gray-900">{student.attendancePercentage || 0}%</div>
+                                    <div className="text-xs text-gray-600">
+                                      {student.attendancePercentage === 100 ? "✓ Complete" : "→ Partial"}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  )
+}

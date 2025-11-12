@@ -40,7 +40,36 @@ const studentSchema = new mongoose.Schema(
     attendance: {
       type: Number,
       default: 0,
+      min: 0,
+      max: 100,
     },
+    // Track attendance in individual events
+    eventAttendance: [
+      {
+        eventId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Event",
+        },
+        percentage: {
+          type: Number,
+          default: 0,
+          min: 0,
+          max: 100,
+        },
+        scanCount: {
+          type: Number,
+          default: 0,
+          min: 0,
+          max: 2,
+        },
+        entryTime: Date,
+        exitTime: Date,
+        markedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     hostedEvents: [
       {
         type: mongoose.Schema.Types.ObjectId,

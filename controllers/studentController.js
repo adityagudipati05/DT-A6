@@ -1,4 +1,5 @@
 import Student from "../models/Student.js";
+import PermissionRequest from "../models/PermissionRequest.js";
 import { generateToken } from "../middleware/auth.js";
 
 // Student Login
@@ -54,7 +55,6 @@ export const getStudentProfile = async (req, res) => {
 // Get current student's permission requests
 export const getMyRequests = async (req, res) => {
   try {
-    const PermissionRequest = require("../models/PermissionRequest.js").default;
     const requests = await PermissionRequest.find({ studentId: req.user.userId })
       .populate("eventId", "title date location")
       .populate("requestedTo", "name facultyId")

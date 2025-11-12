@@ -1,7 +1,5 @@
 "use client"
 
-"use client"
-
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,32 +9,46 @@ import { getPendingRequests, respondPermissionRequest } from "@/lib/apiClient"
 export default function PendingRequests() {
   const [requests, setRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
 
   useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      const res = await getPendingRequests()
-      if (!mounted) return
-      if (res.success) setRequests(res.data || [])
-      setLoading(false)
-    })()
-    return () => {
-      mounted = false
-    }
+    fetchRequests()
+    // Auto-refresh every 2 seconds to keep data fresh
+    const interval = setInterval(fetchRequests, 2000)
+    return () => clearInterval(interval)
   }, [])
+
+  const fetchRequests = async () => {
+    try {
+      const res = await getPendingRequests()
+      if (res.success) setRequests(res.data || [])
+    } catch (err) {
+      console.error("Error fetching requests:", err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleAction = async (id: string, status: "Approved" | "Rejected") => {
     try {
+      setActionInProgress(id)
       const res = await respondPermissionRequest(id, status)
       if (res.success) {
+        // Remove the request from the list immediately
         setRequests((prev) => prev.filter((r) => r._id !== id))
-        alert(`Request ${status.toLowerCase()}`)
+        alert(`Request ${status.toLowerCase()} successfully!`)
+        // Refetch all requests to sync with backend
+        setTimeout(() => {
+          fetchRequests()
+        }, 500)
       } else {
         alert(res.error || "Failed to update request")
       }
     } catch (err) {
-      console.error(err)
+      console.error("Error responding to request:", err)
       alert("Error responding to request")
+    } finally {
+      setActionInProgress(null)
     }
   }
 
@@ -59,7 +71,6 @@ export default function PendingRequests() {
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-3 px-4 text-gray-700 font-semibold">Student</th>
                   <th className="text-left py-3 px-4 text-gray-700 font-semibold">Event</th>
-                  <th className="text-left py-3 px-4 text-gray-700 font-semibold">Type</th>
                   <th className="text-left py-3 px-4 text-gray-700 font-semibold">Date</th>
                   <th className="text-left py-3 px-4 text-gray-700 font-semibold">Actions</th>
                 </tr>
@@ -77,22 +88,27 @@ export default function PendingRequests() {
                       <p className="text-gray-900">{request.eventId?.title || "Event"}</p>
                     </td>
                     <td className="py-4 px-4">
-                      <span className={`text-xs font-semibold px-3 py-1 rounded-full ${request.type === "host" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
-                        {request.type === "host" ? "Host" : "Participate"}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
                       <p className="text-gray-600">{new Date(request.createdAt).toLocaleDateString()}</p>
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex gap-2">
-                        <Button onClick={() => handleAction(request._id, "Approved")} size="sm" className="bg-green-600 hover:bg-green-700 text-white">
+                        <Button
+                          onClick={() => handleAction(request._id, "Approved")}
+                          disabled={actionInProgress === request._id}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-400"
+                        >
                           <CheckCircle className="w-4 h-4 mr-1" />
-                          Approve
+                          {actionInProgress === request._id ? "..." : "Approve"}
                         </Button>
-                        <Button onClick={() => handleAction(request._id, "Rejected")} size="sm" className="bg-red-600 hover:bg-red-700 text-white">
+                        <Button
+                          onClick={() => handleAction(request._id, "Rejected")}
+                          disabled={actionInProgress === request._id}
+                          size="sm"
+                          className="bg-red-600 hover:bg-red-700 text-white disabled:bg-gray-400"
+                        >
                           <XCircle className="w-4 h-4 mr-1" />
-                          Reject
+                          {actionInProgress === request._id ? "..." : "Reject"}
                         </Button>
                       </div>
                     </td>

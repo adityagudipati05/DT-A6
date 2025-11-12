@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import FacultyHeader from "@/components/faculty/faculty-header"
 import FacultyStats from "@/components/faculty/faculty-stats"
 import PendingRequests from "@/components/faculty/pending-requests"
-import EventsList from "@/components/faculty/events-list"
+import HostedEventsApproval from "@/components/faculty/hosted-events-approval"
 import { Button } from "@/components/ui/button"
 import { QrCode } from "lucide-react"
 import { useAuth } from "@/components/auth-context"
@@ -43,8 +43,8 @@ export default function FacultyDashboard() {
         </div>
 
         <FacultyStats />
-  <EventsList />
-  <PendingRequests />
+        <HostedEventsApproval />
+        <PendingRequests />
       </div>
     </main>
   )

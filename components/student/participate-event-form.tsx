@@ -5,7 +5,14 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
-import { getFacultyList, participateInEvent } from "@/lib/api"
+import { getFacultyList, participateInEvent, getApprovedEvents } from "@/lib/api"
+
+interface ApprovedEvent {
+  _id: string
+  title: string
+  date: Date
+  location: string
+}
 
 export default function ParticipateEventForm() {
   const router = useRouter()
@@ -21,13 +28,22 @@ export default function ParticipateEventForm() {
 
   const [faculties, setFaculties] = useState<Array<{ _id: string; name: string; facultyId?: string }>>([])
   const [selectedFaculty, setSelectedFaculty] = useState<string>("")
+  const [approvedEvents, setApprovedEvents] = useState<ApprovedEvent[]>([])
+  const [loadingEvents, setLoadingEvents] = useState(true)
 
   useEffect(() => {
     let mounted = true
     ;(async () => {
-      const res = await getFacultyList()
-      if (mounted && res.success) {
-        setFaculties(res.data)
+      const [facultyRes, eventsRes] = await Promise.all([getFacultyList(), getApprovedEvents()])
+
+      if (mounted) {
+        if (facultyRes.success) {
+          setFaculties(facultyRes.data)
+        }
+        if (eventsRes.success) {
+          setApprovedEvents(eventsRes.data)
+        }
+        setLoadingEvents(false)
       }
     })()
     return () => {
@@ -54,24 +70,39 @@ export default function ParticipateEventForm() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validation
+    if (!formData.event) {
+      alert("Please select an event")
+      return
+    }
+    if (!selectedFaculty) {
+      alert("Please select a faculty member to request permission from")
+      return
+    }
+    if (!formData.proof) {
+      alert("Please upload a proof document")
+      return
+    }
+
     ;(async () => {
       try {
         const payload: any = {
           eventId: formData.event,
-          requestedTo: selectedFaculty || undefined,
+          requestedTo: selectedFaculty,
           proof: formData.proof,
         }
 
         const res = await participateInEvent(payload as any)
         if (res.success) {
-          alert(res.data?.message || "Request submitted")
+          alert(res.data?.message || "Request submitted successfully")
           router.push("/student/dashboard")
         } else {
           alert(res.error || "Failed to submit request")
         }
       } catch (err) {
         console.error(err)
-        alert("Error submitting request")
+        alert("Error submitting request: " + (err instanceof Error ? err.message : "Unknown error"))
       }
     })()
   }
@@ -161,13 +192,17 @@ export default function ParticipateEventForm() {
           value={formData.event}
           onChange={handleChange}
           required
-          className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-blue-500 transition"
+          disabled={loadingEvents}
+          className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:border-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <option value="">Select Event</option>
-          <option value="national-seminar">National Seminar (2025-11-10 to 2025-11-12)</option>
-          <option value="tech-fest">Technical Fest (2025-12-01 to 2025-12-03)</option>
-          <option value="workshop">Workshop - Web Development (2025-11-20)</option>
-          <option value="sports">Annual Sports Meet (2025-11-25)</option>
+          <option value="">
+            {loadingEvents ? "Loading events..." : approvedEvents.length === 0 ? "No approved events available" : "Select Event"}
+          </option>
+          {approvedEvents.map((event) => (
+            <option key={event._id} value={event._id}>
+              {event.title} ({new Date(event.date).toLocaleDateString()})
+            </option>
+          ))}
         </select>
       </div>
 

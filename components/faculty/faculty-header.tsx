@@ -1,10 +1,11 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { LogOut, Bell, User, QrCode } from "lucide-react"
+import { LogOut, Bell, User, QrCode, Menu, Home, FileText } from "lucide-react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { useAuth } from "@/components/auth-context"
+import { useState } from "react"
 
 interface FacultyHeaderProps {
   onLogout: () => void
@@ -13,9 +14,15 @@ interface FacultyHeaderProps {
 export default function FacultyHeader({ onLogout }: FacultyHeaderProps) {
   const router = useRouter()
   const { user } = useAuth()
+  const [showMenu, setShowMenu] = useState(false)
 
   const facultyName = user?.name || "Faculty"
   const facultyId = user?.facultyId || "N/A"
+
+  const handleNavigation = (path: string) => {
+    router.push(path)
+    setShowMenu(false)
+  }
 
   return (
     <header className="border-b border-blue-200 bg-gradient-to-r from-blue-50 to-blue-100 sticky top-0 z-50 shadow-sm">
@@ -35,22 +42,45 @@ export default function FacultyHeader({ onLogout }: FacultyHeaderProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <Button
-              onClick={() => router.push("/faculty/scan-attendance")}
-              variant="outline"
-              size="sm"
-              className="border-blue-600 text-blue-600 hover:bg-blue-50"
-            >
-              <QrCode className="w-4 h-4 mr-2" />
-              Scan Attendance
-            </Button>
+          <div className="flex items-center gap-2">
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex items-center gap-2">
+              <Button
+                onClick={() => handleNavigation("/faculty/dashboard")}
+                variant="ghost"
+                size="sm"
+                className="text-blue-700 hover:bg-blue-200"
+              >
+                <Home className="w-4 h-4 mr-2" />
+                Dashboard
+              </Button>
+              <Button
+                onClick={() => router.push("/faculty/scan-attendance")}
+                variant="outline"
+                size="sm"
+                className="border-blue-600 text-blue-600 hover:bg-blue-50"
+              >
+                <QrCode className="w-4 h-4 mr-2" />
+                Scan Attendance
+              </Button>
+            </div>
+
+            {/* Icons */}
             <button className="p-2 hover:bg-blue-200 rounded-lg transition text-blue-700 hover:text-blue-900">
               <Bell className="w-5 h-5" />
             </button>
             <button className="p-2 hover:bg-blue-200 rounded-lg transition text-blue-700 hover:text-blue-900">
               <User className="w-5 h-5" />
             </button>
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="md:hidden p-2 hover:bg-blue-200 rounded-lg transition text-blue-700"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
             <Button
               onClick={onLogout}
               variant="outline"
@@ -62,6 +92,32 @@ export default function FacultyHeader({ onLogout }: FacultyHeaderProps) {
             </Button>
           </div>
         </div>
+
+        {/* Mobile Menu */}
+        {showMenu && (
+          <div className="md:hidden mt-4 pb-4 border-t border-blue-200 pt-4 space-y-2">
+            <Button
+              onClick={() => handleNavigation("/faculty/dashboard")}
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-blue-700 hover:bg-blue-200"
+            >
+              <Home className="w-4 h-4 mr-2" />
+              Dashboard
+            </Button>
+            <Button
+              onClick={() => {
+                handleNavigation("/faculty/scan-attendance")
+              }}
+              variant="outline"
+              size="sm"
+              className="w-full justify-start border-blue-600 text-blue-600 hover:bg-blue-50"
+            >
+              <QrCode className="w-4 h-4 mr-2" />
+              Scan Attendance
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   )

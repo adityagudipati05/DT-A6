@@ -1,5 +1,11 @@
 import Faculty from "../models/Faculty.js";
+import Event from "../models/Event.js";
+import PermissionRequest from "../models/PermissionRequest.js";
+import EventPass from "../models/EventPass.js";
+import Student from "../models/Student.js";
 import { generateToken } from "../middleware/auth.js";
+import crypto from "crypto";
+import QRCode from "qrcode";
 
 // Get all faculty (simple list) for dropdowns
 export const getAllFaculty = async (req, res) => {
@@ -61,7 +67,6 @@ export const getFacultyProfile = async (req, res) => {
 // Get Pending Event Requests
 export const getPendingRequests = async (req, res) => {
   try {
-    const PermissionRequest = require("../models/PermissionRequest.js").default;
     // Return only permission requests assigned to this faculty
     const requests = await PermissionRequest.find({ requestedTo: req.user.userId, status: "Pending" })
       .populate("studentId", "name admissionNo")
@@ -70,7 +75,37 @@ export const getPendingRequests = async (req, res) => {
 
     res.json(requests);
   } catch (err) {
+    console.error("Error fetching requests:", err);
     res.status(500).json({ message: "Error fetching requests", error: err.message });
+  }
+};
+
+// Get requests stats (counts of Pending, Approved, Rejected)
+export const getRequestsStats = async (req, res) => {
+  try {
+    const pendingCount = await PermissionRequest.countDocuments({
+      requestedTo: req.user.userId,
+      status: "Pending",
+    });
+
+    const approvedCount = await PermissionRequest.countDocuments({
+      requestedTo: req.user.userId,
+      status: "Approved",
+    });
+
+    const rejectedCount = await PermissionRequest.countDocuments({
+      requestedTo: req.user.userId,
+      status: "Rejected",
+    });
+
+    res.json({
+      totalRequests: pendingCount + approvedCount + rejectedCount,
+      pending: pendingCount,
+      approved: approvedCount,
+      rejected: rejectedCount,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching stats", error: err.message });
   }
 };
 
@@ -78,7 +113,6 @@ export const getPendingRequests = async (req, res) => {
 export const updateEventApproval = async (req, res) => {
   try {
     const { eventId, approvalStatus } = req.body;
-    const Event = require("../models/Event.js").default;
 
     if (!["Approved", "Rejected"].includes(approvalStatus)) {
       return res.status(400).json({ message: "Invalid approval status" });
@@ -93,8 +127,13 @@ export const updateEventApproval = async (req, res) => {
       { new: true }
     ).populate("hostId");
 
-    res.json(event);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    res.json({ success: true, message: `Event ${approvalStatus.toLowerCase()} successfully`, data: event });
   } catch (err) {
+    console.error("Error updating event approval:", err);
     res.status(500).json({ message: "Error updating event", error: err.message });
   }
 };
@@ -103,10 +142,6 @@ export const updateEventApproval = async (req, res) => {
 export const respondPermissionRequest = async (req, res) => {
   try {
     const { requestId, status } = req.body; // status: "Approved" or "Rejected"
-    const PermissionRequest = require("../models/PermissionRequest.js").default;
-    const Event = require("../models/Event.js").default;
-    const EventPass = require("../models/EventPass.js").default;
-    const Student = require("../models/Student.js").default;
 
     if (!["Approved", "Rejected"].includes(status)) {
       return res.status(400).json({ message: "Invalid status" });
@@ -126,24 +161,38 @@ export const respondPermissionRequest = async (req, res) => {
     // If approved, add student as participant, create EventPass and update student's participatedEvents
     if (status === "Approved") {
       const event = await Event.findById(request.eventId);
-      if (event && !event.participants.includes(request.studentId)) {
-        event.participants.push(request.studentId);
+      if (event) {
+        // Set event approval status to "Approved" if not already
+        if (event.approvalStatus === "Pending") {
+          event.approvalStatus = "Approved";
+          event.approvedBy = req.user.userId;
+        }
+        
+        // Add student as participant
+        if (!event.participants.includes(request.studentId)) {
+          event.participants.push(request.studentId);
+        }
         await event.save();
       }
 
       await Student.findByIdAndUpdate(request.studentId, { $push: { participatedEvents: request.eventId } });
 
-      // create event pass
-      const passId = require("crypto").randomBytes(16).toString("hex");
+      // create event pass with QR code
+      const passId = crypto.randomBytes(16).toString("hex");
       const qrCodeData = JSON.stringify({ passId, eventId: request.eventId, studentId: request.studentId });
-      const qrCode = await require("qrcode").toDataURL(qrCodeData);
+      const qrCode = await QRCode.toDataURL(qrCodeData);
 
-      const eventPass = new EventPass({ studentId: request.studentId, eventId: request.eventId, qrCode });
+      const eventPass = new EventPass({ 
+        studentId: request.studentId, 
+        eventId: request.eventId, 
+        qrCode 
+      });
       await eventPass.save();
     }
 
-    res.json({ message: `Request ${status.toLowerCase()}`, request });
+    res.json({ success: true, message: `Request ${status.toLowerCase()}`, request });
   } catch (err) {
+    console.error("Error responding to request:", err);
     res.status(500).json({ message: "Error responding to request", error: err.message });
   }
 };
