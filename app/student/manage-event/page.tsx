@@ -96,7 +96,8 @@ export default function ManageEventPage() {
     router.push("/")
   }
 
-  const approvedEvents = hostedEvents.filter((event) => event.approvalStatus === "Approved")
+  // Show all hosted events (Pending, Approved, or Rejected)
+  const approvedEvents = hostedEvents
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -135,7 +136,7 @@ export default function ManageEventPage() {
             <Card className="border-gray-200 bg-white shadow-sm">
               <CardContent className="pt-6 text-center py-12">
                 <p className="text-gray-600">
-                  You don't have any approved events yet. Host an event and get it approved by a faculty member.
+                  You haven't hosted any events yet. Create one to get started!
                 </p>
                 <Button
                   onClick={() => router.push("/student/host-event")}
@@ -161,14 +162,27 @@ export default function ManageEventPage() {
                       {approvedEvents.map((event) => (
                         <Card
                           key={event._id}
-                          className="border-gray-200 cursor-pointer hover:border-blue-400 hover:shadow-md transition"
+                          className={`border-gray-200 cursor-pointer hover:border-blue-400 hover:shadow-md transition ${
+                            event.approvalStatus === "Approved" ? "" : event.approvalStatus === "Pending" ? "border-yellow-300" : "border-red-300"
+                          }`}
                           onClick={() => setSelectedEventId(event._id)}
                         >
                           <CardHeader>
-                            <CardTitle className="text-lg text-gray-900">{event.title}</CardTitle>
-                            <CardDescription className="text-sm text-gray-600">
-                              {new Date(event.date).toLocaleDateString()}
-                            </CardDescription>
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <CardTitle className="text-lg text-gray-900">{event.title}</CardTitle>
+                                <CardDescription className="text-sm text-gray-600">
+                                  {new Date(event.date).toLocaleDateString()}
+                                </CardDescription>
+                              </div>
+                              <span className={`px-2 py-1 text-xs font-semibold rounded ${
+                                event.approvalStatus === "Approved" ? "bg-green-100 text-green-800" : 
+                                event.approvalStatus === "Pending" ? "bg-yellow-100 text-yellow-800" : 
+                                "bg-red-100 text-red-800"
+                              }`}>
+                                {event.approvalStatus}
+                              </span>
+                            </div>
                           </CardHeader>
                           <CardContent>
                             <div className="space-y-2 text-sm">
@@ -177,9 +191,15 @@ export default function ManageEventPage() {
                                 <span className="text-gray-900 font-medium">{event.location}</span>
                               </div>
                               <div className="flex justify-between">
+                                <span className="text-gray-600">Participants:</span>
+                                <span className="text-gray-900 font-medium">
+                                  {event.participants?.length || 0} registered
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
                                 <span className="text-gray-600">Marked:</span>
                                 <span className="text-gray-900 font-medium">
-                                  {event.attendanceMarked?.length || 0} participants
+                                  {event.attendanceMarked?.length || 0} attended
                                 </span>
                               </div>
                             </div>

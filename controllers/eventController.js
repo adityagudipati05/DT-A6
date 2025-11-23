@@ -24,6 +24,16 @@ export const createEvent = async (req, res) => {
     await newEvent.save();
     await newEvent.populate("hostId");
 
+    // If faculty coordinator is specified, create a PermissionRequest
+    if (facultyCoordinator) {
+      const permissionRequest = new PermissionRequest({
+        studentId: req.user.userId,
+        eventId: newEvent._id,
+        requestedTo: facultyCoordinator,
+      });
+      await permissionRequest.save();
+    }
+
     res.status(201).json(newEvent);
   } catch (err) {
     res.status(500).json({ message: "Error creating event", error: err.message });
@@ -142,13 +152,8 @@ export const participateInEvent = async (req, res) => {
 
     // Generate Event Pass with QR Code
     const passId = crypto.randomBytes(16).toString("hex");
-    const qrCodeData = JSON.stringify({
-      passId,
-      eventId,
-      studentId: req.user.userId,
-    });
-
-    const qrCode = await QRCode.toDataURL(qrCodeData);
+    // Use passId directly in QR code for easier scanning
+    const qrCode = await QRCode.toDataURL(passId);
 
     const eventPass = new EventPass({
       studentId: req.user.userId,

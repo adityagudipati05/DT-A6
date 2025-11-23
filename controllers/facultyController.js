@@ -179,8 +179,7 @@ export const respondPermissionRequest = async (req, res) => {
 
       // create event pass with QR code
       const passId = crypto.randomBytes(16).toString("hex");
-      const qrCodeData = JSON.stringify({ passId, eventId: request.eventId, studentId: request.studentId });
-      const qrCode = await QRCode.toDataURL(qrCodeData);
+      const qrCode = await QRCode.toDataURL(passId);
 
       const eventPass = new EventPass({ 
         studentId: request.studentId, 
