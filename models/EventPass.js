@@ -14,8 +14,7 @@ const eventPassSchema = new mongoose.Schema(
     },
     qrCode: {
       type: String,
-      required: true,
-      unique: true,
+      required: false,  // Will be generated on creation
     },
     passStatus: {
       type: String,
@@ -70,5 +69,8 @@ const eventPassSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Unique constraint: A student can only have one pass per event
+eventPassSchema.index({ studentId: 1, eventId: 1 }, { unique: true });
 
 export default mongoose.model("EventPass", eventPassSchema);

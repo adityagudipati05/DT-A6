@@ -86,9 +86,9 @@ export default function FacultyEventScanner({ eventId, onScanComplete }: Faculty
       setError("")
       setSuccess("")
 
-      const token = localStorage.getItem("token")
+      const token = localStorage.getItem("authToken") || localStorage.getItem("token")
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/events/scan-qr`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/events/scan-qr`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

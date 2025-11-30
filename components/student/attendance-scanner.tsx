@@ -35,12 +35,12 @@ export default function AttendanceScanner({ eventId }: AttendanceScannerProps) {
 
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/events/mark-attendance`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/events/mark-attendance`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${localStorage.getItem("authToken") || localStorage.getItem("token")}`,
           },
           body: JSON.stringify({
             qrData: qrInput,

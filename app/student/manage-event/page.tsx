@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import StudentHeader from "@/components/student/student-header"
-import HostEventScanner from "@/components/student/host-event-scanner"
+import EventParticipantScanner from "@/components/student/event-participant-scanner"
 import { useAuth } from "@/components/auth-context"
 
 interface HostedEvent {
@@ -34,54 +34,91 @@ interface HostedEvent {
 
 export default function ManageEventPage() {
   const router = useRouter()
-  const { user, logout } = useAuth()
+  const { user, logout, isAuthenticated, loading: authLoading } = useAuth()
   const [hostedEvents, setHostedEvents] = useState<HostedEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [error, setError] = useState("")
 
+  // Verify authentication
   useEffect(() => {
-    if (!user) {
+    if (!authLoading && !isAuthenticated) {
+      console.log("Not authenticated, redirecting to login")
       router.push("/")
-      return
     }
-    fetchHostedEvents()
-    // Auto-refresh every 3 seconds to catch approval updates from faculty
-    const interval = setInterval(fetchHostedEvents, 3000)
-    return () => clearInterval(interval)
-  }, [user, router])
+  }, [authLoading, isAuthenticated, router])
+
+  // Fetch hosted events when authenticated
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user?._id) {
+      console.log("User authenticated:", user.admissionNo)
+      fetchHostedEvents()
+      // Don't auto-refresh - use manual refresh button to avoid page fluctuation
+    }
+  }, [authLoading, isAuthenticated, user?._id])
 
   const fetchHostedEvents = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem("token")
+      setError("")
+      
+      const token = localStorage.getItem("authToken") || localStorage.getItem("token")
       
       if (!token) {
-        setError("Authentication required. Please log in again.")
+        console.error("No token found in localStorage")
+        setError("Session expired. Please log in again.")
         router.push("/")
         return
       }
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/events/my-events`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      )
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/events/my-events`
+      console.log("[ManageEvent] Fetching from:", apiUrl)
+      console.log("[ManageEvent] Token:", token.substring(0, 20) + "...")
+
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      console.log("[ManageEvent] Response status:", response.status)
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.message || `Failed to fetch hosted events: ${response.status}`)
+        const contentType = response.headers.get("content-type")
+        let errorMessage = `API Error: ${response.status}`
+        
+        try {
+          if (contentType?.includes("application/json")) {
+            const errorData = await response.json()
+            errorMessage = errorData.message || errorMessage
+            console.error("[ManageEvent] API Error:", errorData)
+          } else {
+            const text = await response.text()
+            console.error("[ManageEvent] API Error (text):", text)
+          }
+        } catch (parseError) {
+          console.error("[ManageEvent] Failed to parse error response:", parseError)
+        }
+
+        if (response.status === 401) {
+          setError("Authentication failed. Please log in again.")
+          logout()
+          router.push("/")
+        } else {
+          setError(errorMessage)
+        }
+        return
       }
 
       const data = await response.json()
-      setHostedEvents(data.events || [])
-      setError("")
+      console.log("[ManageEvent] Events data received:", data)
+      setHostedEvents(Array.isArray(data.events) ? data.events : [])
     } catch (error) {
-      console.error("Error fetching hosted events:", error)
-      setError(error instanceof Error ? error.message : "Failed to load hosted events")
+      const errorMsg = error instanceof Error ? error.message : "Unknown error"
+      console.error("[ManageEvent] Fetch error:", errorMsg)
+      setError(`Failed to load events: ${errorMsg}`)
     } finally {
       setLoading(false)
     }
@@ -112,9 +149,19 @@ export default function ManageEventPage() {
         </div>
 
         <div className="max-w-4xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Manage Hosted Events</h1>
-            <p className="text-gray-600 mt-2">Mark attendance for your approved events</p>
+          <div className="mb-8 flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Manage Hosted Events</h1>
+              <p className="text-gray-600 mt-2">Mark attendance for your approved events</p>
+            </div>
+            <Button 
+              onClick={refreshEventData} 
+              disabled={loading}
+              variant="outline"
+              className="text-gray-700 hover:bg-gray-100"
+            >
+              🔄 Refresh
+            </Button>
           </div>
 
           {error && (
@@ -222,7 +269,12 @@ export default function ManageEventPage() {
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Back to Events
                   </Button>
-                  <HostEventScanner eventId={selectedEventId} onScanComplete={refreshEventData} />
+                  <EventParticipantScanner 
+                    eventId={selectedEventId} 
+                    eventTitle={hostedEvents.find((e) => e._id === selectedEventId)?.title || "Event"}
+                    onScanComplete={refreshEventData} 
+                    onClose={() => setSelectedEventId(null)}
+                  />
 
                   {/* Attendance Summary */}
                   {hostedEvents.find((e) => e._id === selectedEventId)?.attendanceMarked &&
@@ -251,13 +303,13 @@ export default function ManageEventPage() {
                                   <div>
                                     <p className="text-sm font-medium text-gray-900">Student {student.studentId}</p>
                                     <p className="text-xs text-gray-600">
-                                      Scans: {student.scanCount || 0}/2
+                                      {student.attendancePercentage === 100 ? "✓ Entry & Exit scanned" : "⏱ Entry scanned (waiting for exit)"}
                                     </p>
                                   </div>
                                   <div className="text-right">
                                     <div className="font-bold text-gray-900">{student.attendancePercentage || 0}%</div>
                                     <div className="text-xs text-gray-600">
-                                      {student.attendancePercentage === 100 ? "✓ Complete" : "→ Partial"}
+                                      {student.attendancePercentage === 100 ? "Complete" : "Partial"}
                                     </div>
                                   </div>
                                 </div>

@@ -45,18 +45,24 @@ export default function ScanAttendancePage() {
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    fetchHostedEvents()
+    setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+    fetchHostedEvents()
+  }, [mounted])
 
   const fetchHostedEvents = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem("token")
+      const token = localStorage.getItem("authToken") || localStorage.getItem("token")
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/events/my-approved-events`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/events/my-approved-events`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -106,10 +112,10 @@ export default function ScanAttendancePage() {
       setError("")
       setMessage("")
 
-      const token = localStorage.getItem("token")
+      const token = localStorage.getItem("authToken") || localStorage.getItem("token")
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/events/scan-qr`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/events/scan-qr`,
         {
           method: "POST",
           headers: {

@@ -177,16 +177,32 @@ export const respondPermissionRequest = async (req, res) => {
 
       await Student.findByIdAndUpdate(request.studentId, { $push: { participatedEvents: request.eventId } });
 
-      // create event pass with QR code
-      const passId = crypto.randomBytes(16).toString("hex");
-      const qrCode = await QRCode.toDataURL(passId);
-
-      const eventPass = new EventPass({ 
-        studentId: request.studentId, 
-        eventId: request.eventId, 
-        qrCode 
-      });
-      await eventPass.save();
+      // Create event pass with QR code
+      // First check if EventPass already exists
+      console.log("[approveRequest] Checking if EventPass already exists for student:", request.studentId, "event:", request.eventId);
+      let eventPass = await EventPass.findOne({ studentId: request.studentId, eventId: request.eventId });
+      
+      if (!eventPass) {
+        // Create the EventPass to get its _id
+        console.log("[approveRequest] Creating new EventPass for student:", request.studentId, "event:", request.eventId);
+        eventPass = new EventPass({ 
+          studentId: request.studentId, 
+          eventId: request.eventId
+          // Don't set qrCode yet, will generate after saving to get _id
+        });
+        console.log("[approveRequest] EventPass object created, saving...");
+        await eventPass.save();
+        console.log("[approveRequest] EventPass saved with ID:", eventPass._id.toString());
+        
+        // Now generate QR code with the EventPass ID
+        console.log("[approveRequest] Generating QR code for EventPass ID:", eventPass._id.toString());
+        const qrCode = await QRCode.toDataURL(eventPass._id.toString());
+        eventPass.qrCode = qrCode;
+        await eventPass.save();
+        console.log("[approveRequest] EventPass QR code generated and saved successfully");
+      } else {
+        console.log("[approveRequest] EventPass already exists with ID:", eventPass._id.toString());
+      }
     }
 
     res.json({ success: true, message: `Request ${status.toLowerCase()}`, request });

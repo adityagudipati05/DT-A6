@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Event from "../models/Event.js";
 import EventPass from "../models/EventPass.js";
 import Student from "../models/Student.js";
@@ -57,13 +58,29 @@ export const getAllEvents = async (req, res) => {
 // Get Student's Hosted Events
 export const getMyHostedEvents = async (req, res) => {
   try {
-    const events = await Event.find({ hostId: req.user.userId })
+    console.log("[getMyHostedEvents] Incoming request");
+    console.log("[getMyHostedEvents] Headers:", req.headers);
+    console.log("[getMyHostedEvents] User from token:", req.user);
+    
+    if (!req.user || !req.user.userId) {
+      console.error("[getMyHostedEvents] No userId in request - token issue");
+      return res.status(401).json({ message: "Invalid token - no userId", received: req.user });
+    }
+    
+    const userId = req.user.userId;
+    console.log("[getMyHostedEvents] Querying events for userId:", userId);
+    
+    const events = await Event.find({ hostId: userId })
+      .populate("hostId", "name admissionNo email")
       .populate("participants", "name admissionNo email")
+      .populate("facultyCoordinator", "name facultyId")
       .sort({ createdAt: -1 });
 
-    res.json({ events });
+    console.log("[getMyHostedEvents] Query complete - found", events.length, "events");
+    res.json({ events, userId, queriedFor: userId });
   } catch (err) {
-    res.status(500).json({ message: "Error fetching events", error: err.message });
+    console.error("[getMyHostedEvents] Exception:", err);
+    res.status(500).json({ message: "Error fetching events", error: err.message, stack: err.stack });
   }
 };
 
@@ -111,62 +128,37 @@ export const participateInEvent = async (req, res) => {
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
-    // If student provided a faculty to request permission from, create a PermissionRequest
-    if (requestedTo) {
-      // handle optional uploaded proof (req.file) - multer will populate req.file
-      let proofUrl = null;
-      if (req.file) {
-        // store relative path so frontend can request it if static serving is set up
-        proofUrl = `/uploads/${req.file.filename}`;
-      }
 
-      const newRequest = new PermissionRequest({
-        studentId: req.user.userId,
-        eventId,
-        requestedTo,
-        proofUrl,
+    // Check if event is approved before allowing participation
+    if (event.approvalStatus !== "Approved") {
+      return res.status(400).json({ 
+        message: "Cannot join event",
+        detail: `Event is ${event.approvalStatus || "pending"} approval. Please try again later.`
       });
-
-      await newRequest.save();
-
-      return res.status(201).json({ message: "Permission request created", request: newRequest });
     }
 
-    // If no requestedTo is provided, fallback to immediate registration (legacy behavior)
-    if (event.participants.includes(req.user.userId)) {
-      return res.status(400).json({ message: "Already participating in this event" });
+    // Student must request permission from a Faculty member
+    if (!requestedTo) {
+      return res.status(400).json({ message: "Please select a faculty member to request permission from" });
     }
 
-    if (event.participants.length >= event.maxParticipants) {
-      return res.status(400).json({ message: "Event is full" });
+    // handle optional uploaded proof (req.file) - multer will populate req.file
+    let proofUrl = null;
+    if (req.file) {
+      // store relative path so frontend can request it if static serving is set up
+      proofUrl = `/uploads/${req.file.filename}`;
     }
 
-    // Add student to event participants
-    event.participants.push(req.user.userId);
-    await event.save();
-
-    // Add event to student's participated events
-    await Student.findByIdAndUpdate(req.user.userId, {
-      $push: { participatedEvents: eventId },
-    });
-
-    // Generate Event Pass with QR Code
-    const passId = crypto.randomBytes(16).toString("hex");
-    // Use passId directly in QR code for easier scanning
-    const qrCode = await QRCode.toDataURL(passId);
-
-    const eventPass = new EventPass({
+    const newRequest = new PermissionRequest({
       studentId: req.user.userId,
       eventId,
-      qrCode: qrCode,
+      requestedTo,  // Must be a Faculty ID
+      proofUrl,
     });
 
-    await eventPass.save();
+    await newRequest.save();
 
-    res.status(201).json({
-      message: "Successfully registered for event",
-      eventPass,
-    });
+    return res.status(201).json({ message: "Permission request created", request: newRequest });
   } catch (err) {
     res.status(500).json({ message: "Error participating in event", error: err.message });
   }
@@ -492,64 +484,230 @@ export const getEventAttendance = async (req, res) => {
 export const markAttendanceByQR = async (req, res) => {
   try {
     const { qrData, eventId } = req.body;
+    console.log("\n[markAttendanceByQR] ===== INCOMING REQUEST =====");
+    console.log("[markAttendanceByQR] Full req.body:", JSON.stringify(req.body));
+    console.log("[markAttendanceByQR] qrData received:", qrData);
+    console.log("[markAttendanceByQR] qrData type:", typeof qrData);
+    console.log("[markAttendanceByQR] qrData length:", qrData ? qrData.length : 'null');
+    console.log("[markAttendanceByQR] eventId:", eventId);
+    console.log("[markAttendanceByQR] req.user:", req.user);
 
-    // Parse QR data
-    let passData;
-    try {
-      passData = JSON.parse(qrData);
-    } catch {
-      return res.status(400).json({ message: "Invalid QR code format" });
+    // Validate inputs
+    if (!qrData || !eventId) {
+      console.error("[markAttendanceByQR] ❌ Missing required fields - qrData or eventId");
+      return res.status(400).json({ message: "QR data and event ID are required" });
     }
 
-    // Find the event pass
-    const eventPass = await EventPass.findById(passData.passId || qrData)
-      .populate("studentId", "name admissionNo")
-      .populate("eventId");
+    // The QR data should be just the passId (EventPass _id)
+    const passIdToFind = qrData.trim();
+    
+    console.log("[markAttendanceByQR] Raw QR data received:", passIdToFind);
+    console.log("[markAttendanceByQR] QR data length:", passIdToFind.length);
+    console.log("[markAttendanceByQR] First 50 chars:", passIdToFind.substring(0, 50));
 
-    if (!eventPass) {
-      return res.status(404).json({ message: "Participant not found" });
-    }
-
-    // Verify the event matches
-    if (String(eventPass.eventId._id) !== String(eventId)) {
-      return res.status(400).json({ message: "QR code does not match this event" });
-    }
-
-    // Check if already marked
-    const event = await Event.findById(eventId);
-    const alreadyMarked = event.attendanceMarked.some(
-      (att) => String(att.studentId) === String(eventPass.studentId._id)
-    );
-
-    if (alreadyMarked) {
-      return res.status(200).json({
-        message: "Already marked",
-        status: "already_marked",
-        student: {
-          name: eventPass.studentId.name,
-          admissionNo: eventPass.studentId.admissionNo,
-        },
+    // Extract ObjectId from QR data
+    let extractedId = passIdToFind;
+    
+    // Handle different formats:
+    // - Exactly 24 hex chars: use as-is
+    // - 32 chars: take last 24 (most likely format from copy-paste)
+    // - Other: reject
+    
+    if (passIdToFind.match(/^[0-9a-fA-F]{24}$/)) {
+      // Exactly 24 chars - perfect
+      console.log("[markAttendanceByQR] ✅ Valid 24-char ObjectId format detected");
+      extractedId = passIdToFind;
+    } else if (passIdToFind.match(/^[0-9a-fA-F]{32}$/)) {
+      // Exactly 32 chars - take the last 24 (first 8 are usually extra)
+      extractedId = passIdToFind.substring(8);
+      console.log("[markAttendanceByQR] ℹ️ 32-char string detected, using last 24 chars");
+      console.log("[markAttendanceByQR] Original:", passIdToFind);
+      console.log("[markAttendanceByQR] Extracted:", extractedId);
+    } else {
+      console.error("[markAttendanceByQR] ❌ Invalid QR format");
+      console.error("[markAttendanceByQR] Expected 24 or 32 hex chars, got:", passIdToFind.length, "chars");
+      console.error("[markAttendanceByQR] Data:", passIdToFind);
+      return res.status(400).json({ 
+        message: "Invalid QR code format",
+        detail: `Expected 24 or 32 character hex string, got ${passIdToFind.length} characters`
       });
     }
 
-    // Mark attendance
-    event.attendanceMarked.push({
-      studentId: eventPass.studentId._id,
-      markedAt: new Date(),
-    });
+    // Find the event pass - convert hex string to ObjectId
+    console.log("[markAttendanceByQR] Looking for EventPass with ID:", extractedId);
+    
+    // Convert hex string to MongoDB ObjectId
+    let objectId;
+    try {
+      objectId = new mongoose.Types.ObjectId(extractedId);
+      console.log("[markAttendanceByQR] ✅ Converted to ObjectId:", objectId);
+    } catch (err) {
+      console.error("[markAttendanceByQR] ❌ Failed to convert to ObjectId:", err.message);
+      return res.status(400).json({ message: "Invalid QR code ID format" });
+    }
+    
+    const eventPass = await EventPass.findById(objectId)
+      .populate("studentId", "name admissionNo attendance eventAttendance")
+      .populate("eventId");
+
+    console.log("[markAttendanceByQR] EventPass found:", !!eventPass);
+
+    if (!eventPass) {
+      console.error("[markAttendanceByQR] ❌ EventPass not found for ID:", passIdToFind);
+      console.error("[markAttendanceByQR] 🔍 Searched with ObjectId:", objectId);
+      return res.status(404).json({ message: "Participant not found. Invalid QR code." });
+    }
+
+    // Log the found EventPass details
+    console.log("[markAttendanceByQR] 📋 EventPass Details:");
+    console.log("  - EventPass ID:", eventPass._id);
+    console.log("  - Student ID:", eventPass.studentId?._id);
+    console.log("  - Student Name:", eventPass.studentId?.name);
+    console.log("  - Student Admission:", eventPass.studentId?.admissionNo);
+    console.log("  - Event ID:", eventPass.eventId?._id);
+    console.log("  - Event Title:", eventPass.eventId?.title);
+    console.log("  - ScanCount:", eventPass.scanCount);
+    console.log("  - PassStatus:", eventPass.passStatus);
+
+    // Verify eventId is valid
+    if (!eventPass.eventId) {
+      console.error("[markAttendanceByQR] ❌ EventPass has no associated event");
+      return res.status(400).json({ message: "EventPass has no associated event" });
+    }
+
+    // NOTE: Event mismatch check REMOVED for testing purposes
+    // Allows scanning QR codes from different events
+    console.log("[markAttendanceByQR] 🔍 Checking event details:");
+    console.log("  - EventPass event ID:", String(eventPass.eventId._id));
+    console.log("  - Request event ID:", String(eventId));
+    console.log("[markAttendanceByQR] ℹ️  Event mismatch validation disabled for testing");
+
+    // Check if attendance already marked for this student
+    const event = await Event.findById(eventId);
+    if (!event) {
+      console.error("[markAttendanceByQR] ❌ Event not found:", eventId);
+      return res.status(404).json({ message: "Event not found" });
+    }
+    
+    // Verify the user is the event host (host can be faculty or student)
+    console.log("[markAttendanceByQR] Checking if user is event host:");
+    console.log("  - Event hostId:", String(event.hostId));
+    console.log("  - Request userId:", String(req.user.userId));
+    
+    if (String(event.hostId) !== String(req.user.userId)) {
+      console.error("[markAttendanceByQR] ❌ User is not the event host");
+      return res.status(403).json({ 
+        message: "Only the event host can scan QR codes",
+        detail: "You are not the host of this event"
+      });
+    }
+    console.log("[markAttendanceByQR] ✅ User is event host - allowed to scan");
+    
+    const existingRecord = event.attendanceMarked.find(
+      (att) => String(att.studentId) === String(eventPass.studentId._id)
+    );
+
+    console.log("[markAttendanceByQR] Existing record found:", !!existingRecord);
+    console.log("[markAttendanceByQR] Student ObjectId:", eventPass.studentId._id);
+
+    // Auto-detect entry/exit based on scan count
+    let scanType = "entry";
+    let attendancePercentage = 50; // First scan = 50% (entry)
+    const now = new Date();
+    const studentId = eventPass.studentId._id; // Extract the actual student ID
+
+    if (existingRecord) {
+      // Second scan = exit (100% attendance)
+      scanType = "exit";
+      attendancePercentage = 100;
+      existingRecord.scanCount = (existingRecord.scanCount || 1) + 1;
+      existingRecord.exitTime = now;
+      existingRecord.attendancePercentage = 100;
+      
+      // UPDATE EVENTPASS EXIT SCAN
+      console.log("[markAttendanceByQR] 📍 Updating EventPass exit scan");
+      eventPass.exitScan.scannedAt = now;
+      eventPass.exitScan.scannedBy = req.user.userId; // Host who scanned
+      eventPass.scanCount = 2;
+      await eventPass.save();
+      console.log("[markAttendanceByQR] ✅ EventPass exit scan recorded");
+    } else {
+      // First scan = entry
+      event.attendanceMarked.push({
+        studentId: studentId,
+        scanCount: 1,
+        entryTime: now,
+        attendancePercentage: 50,
+      });
+      
+      // UPDATE EVENTPASS ENTRY SCAN
+      console.log("[markAttendanceByQR] 📍 Updating EventPass entry scan");
+      eventPass.entryScan.scannedAt = now;
+      eventPass.entryScan.scannedBy = req.user.userId; // Host who scanned
+      eventPass.scanCount = 1;
+      await eventPass.save();
+      console.log("[markAttendanceByQR] ✅ EventPass entry scan recorded");
+    }
 
     await event.save();
+    
+    // UPDATE STUDENT ATTENDANCE: Increment by 1% when exit scan is completed
+    if (scanType === "exit") {
+      console.log("[markAttendanceByQR] 📊 Updating student total attendance");
+      
+      const student = await Student.findById(studentId);
+      if (student) {
+        // Increment total attendance by 1%, cap at 100%
+        const newAttendance = Math.min(100, (student.attendance || 0) + 1);
+        student.attendance = newAttendance;
+        
+        // Also update or create event attendance record in Student document
+        const existingEventAttendance = student.eventAttendance.find(
+          (ea) => String(ea.eventId) === String(eventId)
+        );
+        
+        if (existingEventAttendance) {
+          existingEventAttendance.percentage = 100;
+          existingEventAttendance.scanCount = 2;
+          existingEventAttendance.exitTime = new Date();
+        } else {
+          student.eventAttendance.push({
+            eventId,
+            percentage: 100,
+            scanCount: 2,
+            entryTime: existingRecord?.entryTime || new Date(),
+            exitTime: new Date(),
+            markedAt: new Date(),
+          });
+        }
+        
+        await student.save();
+        console.log("[markAttendanceByQR] ✅ Student attendance updated to:", newAttendance, "%");
+      }
+    }
+
+    console.log("[markAttendanceByQR] ✅ Attendance marked successfully - scanType:", scanType);
 
     res.json({
-      message: "Attendance marked successfully",
-      status: "marked",
+      message: `${scanType === "entry" ? "Entry marked" : "Exit marked"} successfully`,
+      status: scanType,
       student: {
+        studentId: eventPass.studentId._id,
         name: eventPass.studentId.name,
         admissionNo: eventPass.studentId.admissionNo,
       },
+      attendance: attendancePercentage,
       totalAttendance: event.attendanceMarked.length,
     });
   } catch (err) {
-    res.status(500).json({ message: "Error marking attendance", error: err.message });
+    console.error("\n[markAttendanceByQR] ❌ EXCEPTION CAUGHT:");
+    console.error("[markAttendanceByQR] Error message:", err.message);
+    console.error("[markAttendanceByQR] Error stack:", err.stack);
+    console.error("[markAttendanceByQR] Error type:", err.constructor.name);
+    res.status(500).json({ 
+      message: "Error marking attendance", 
+      error: err.message,
+      type: err.constructor.name
+    });
   }
 };

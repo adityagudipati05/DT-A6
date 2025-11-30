@@ -39,6 +39,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Check if user is already logged in on mount
   useEffect(() => {
+    // Clean up old token key (migrate from "token" to "authToken")
+    if (typeof window !== "undefined") {
+      const oldToken = localStorage.getItem("token")
+      if (oldToken && !localStorage.getItem("authToken")) {
+        localStorage.setItem("authToken", oldToken)
+        localStorage.removeItem("token")
+      }
+    }
+
     const token = getToken()
     if (token) {
       // You can validate token here if needed
